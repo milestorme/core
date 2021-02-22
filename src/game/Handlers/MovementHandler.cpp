@@ -41,7 +41,7 @@
 #include "MovementPacketSender.h"
 
 
-void WorldSession::HandleMoveWorldportAckOpcode(WorldPacket & /*recvData*/)
+void WorldSession::HandleMoveWorldportAckOpcode(WorldPacket& /*recvData*/)
 {
     DEBUG_LOG("WORLD: Recvd MSG_MOVE_WORLDPORT_ACK.");
     HandleMoveWorldportAckOpcode();
@@ -61,11 +61,11 @@ void WorldSession::HandleMoveWorldportAckOpcode()
     WorldLocation &loc = GetPlayer()->GetTeleportDest();
 
     // possible errors in the coordinate validity check (only cheating case possible)
-    if (!MapManager::IsValidMapCoord(loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z, loc.orientation))
+    if (!MapManager::IsValidMapCoord(loc))
     {
         sLog.outError("WorldSession::HandleMoveWorldportAckOpcode: %s was teleported far to a not valid location "
                       "(map:%u, x:%f, y:%f, z:%f) We port him to his homebind instead..",
-                      GetPlayer()->GetGuidStr().c_str(), loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z);
+                      GetPlayer()->GetGuidStr().c_str(), loc.mapId, loc.x, loc.y, loc.z);
         // stop teleportation else we would try this again and again in LogoutPlayer...
         GetPlayer()->SetSemaphoreTeleportFar(false);
         // and teleport the player to a valid place
@@ -74,7 +74,7 @@ void WorldSession::HandleMoveWorldportAckOpcode()
     }
 
     // get the destination map entry, not the current one, this will fix homebind and reset greeting
-    MapEntry const* mEntry = sMapStorage.LookupEntry<MapEntry>(loc.mapid);
+    MapEntry const* mEntry = sMapStorage.LookupEntry<MapEntry>(loc.mapId);
 
     Map* map = nullptr;
 
@@ -82,13 +82,13 @@ void WorldSession::HandleMoveWorldportAckOpcode()
     if (mEntry->IsBattleGround())
     {
         if (GetPlayer()->GetBattleGroundId())
-            map = sMapMgr.FindMap(loc.mapid, GetPlayer()->GetBattleGroundId());
+            map = sMapMgr.FindMap(loc.mapId, GetPlayer()->GetBattleGroundId());
 
         if (!map)
         {
             DETAIL_LOG("WorldSession::HandleMoveWorldportAckOpcode: %s was teleported far to nonexisten battleground instance "
                        " (map:%u, x:%f, y:%f, z:%f) Trying to port him to his previous place..",
-                       GetPlayer()->GetGuidStr().c_str(), loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z);
+                       GetPlayer()->GetGuidStr().c_str(), loc.mapId, loc.x, loc.y, loc.z);
 
             GetPlayer()->SetSemaphoreTeleportFar(false);
 
@@ -104,22 +104,22 @@ void WorldSession::HandleMoveWorldportAckOpcode()
     }
 
     // reset instance validity, except if going to an instance inside an instance
-    if (GetPlayer()->m_InstanceValid == false && !mEntry->IsDungeon())
+    if (!GetPlayer()->m_InstanceValid && !mEntry->IsDungeon())
         GetPlayer()->m_InstanceValid = true;
 
     // relocate the player to the teleport destination
     if (!map)
     {
-        if (loc.mapid <= 1)
-            GetPlayer()->SetLocationInstanceId(sMapMgr.GetContinentInstanceId(loc.mapid, loc.coord_x, loc.coord_y));
-        map = sMapMgr.CreateMap(loc.mapid, GetPlayer());
+        if (loc.mapId <= 1)
+            GetPlayer()->SetLocationInstanceId(sMapMgr.GetContinentInstanceId(loc.mapId, loc.x, loc.y));
+        map = sMapMgr.CreateMap(loc.mapId, GetPlayer());
     }
 
     GetPlayer()->SetMap(map);
     if (Transport* t = GetPlayer()->GetTransport()) // Transport position may have changed while loading
         t->UpdatePassengerPosition(GetPlayer());
     else
-        GetPlayer()->Relocate(loc.coord_x, loc.coord_y, loc.coord_z, loc.orientation);
+        GetPlayer()->Relocate(loc.x, loc.y, loc.z, loc.o);
 
     GetPlayer()->SendInitialPacketsBeforeAddToMap();
     // the CanEnter checks are done in TeleporTo but conditions may change
@@ -132,7 +132,7 @@ void WorldSession::HandleMoveWorldportAckOpcode()
 
         DETAIL_LOG("WorldSession::HandleMoveWorldportAckOpcode: %s was teleported far but couldn't be added to map "
                    " (map:%u, x:%f, y:%f, z:%f) Trying to port him to his previous place..",
-                   GetPlayer()->GetGuidStr().c_str(), loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z);
+                   GetPlayer()->GetGuidStr().c_str(), loc.mapId, loc.x, loc.y, loc.z);
 
         // Teleport to previous place, if cannot be ported back TP to homebind place
         if (!GetPlayer()->TeleportTo(old_loc))
@@ -227,19 +227,17 @@ void WorldSession::HandleMoveTeleportAckOpcode(WorldPacket& recvData)
 
     ObjectGuid guid;
     recvData >> guid;
-
-    uint32 counter = 0;
-    uint32 time = 0;
+    uint32 movementCounter = 0;
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
-    recvData >> counter >> time;
-#else
-    recvData >> time;
+    recvData >> movementCounter;
 #endif
+    uint32 time = 0;
+    recvData >> time;
     DEBUG_LOG("Guid: %s", guid.GetString().c_str());
-    DEBUG_LOG("Counter %u, time %u", counter, time / IN_MILLISECONDS);
+    DEBUG_LOG("Counter %u, time %u", movementCounter, time / IN_MILLISECONDS);
 
-    Unit *pMover = _player->GetMover();
-    Player *pPlayerMover = pMover->GetTypeId() == TYPEID_PLAYER ? (Player*)pMover : NULL;
+    Unit* pMover = _player->GetMover();
+    Player* pPlayerMover = pMover->ToPlayer();
 
     if (!pPlayerMover || !pPlayerMover->IsBeingTeleportedNear())
         return;
@@ -247,36 +245,38 @@ void WorldSession::HandleMoveTeleportAckOpcode(WorldPacket& recvData)
     if (guid != pPlayerMover->GetObjectGuid())
         return;
 
+    if (!pMover->FindPendingMovementTeleportChange(movementCounter))
+    {
+        sLog.outInfo("WorldSession::HandleMoveTeleportAckOpcode: Player %s from account id %u sent MSG_MOVE_TELEPORT_ACK with counter %u, but no pending teleport found (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), movementCounter, pMover->GetMovementCounter());
+    }
+
     pPlayerMover->SetSemaphoreTeleportNear(false);
 
     WorldLocation const& dest = pPlayerMover->GetTeleportDest();
-    pPlayerMover->TeleportPositionRelocation(dest.coord_x, dest.coord_y, dest.coord_z, dest.orientation);
+    pPlayerMover->TeleportPositionRelocation(dest);
+    MovementPacketSender::SendTeleportToObservers(pPlayerMover);
 
     // resummon pet, if the destination is in another continent instance, let Player::SwitchInstance do it
     // because the client will request the name for the old pet guid and receive no answer
     // result would be a pet named "unknown"
     if (pPlayerMover->GetTemporaryUnsummonedPetNumber())
+    {
         if (sWorld.getConfig(CONFIG_BOOL_CONTINENTS_INSTANCIATE) && pPlayerMover->GetMap()->IsContinent())
         {
             bool transition = false;
-            if (sMapMgr.GetContinentInstanceId(pPlayerMover->GetMap()->GetId(), dest.coord_x, dest.coord_y, &transition) == pPlayerMover->GetInstanceId())
+            if (sMapMgr.GetContinentInstanceId(pPlayerMover->GetMap()->GetId(), dest.x, dest.y, &transition) == pPlayerMover->GetInstanceId())
                 pPlayerMover->ResummonPetTemporaryUnSummonedIfAny();
         }
         else
             pPlayerMover->ResummonPetTemporaryUnSummonedIfAny();
+    }
 
     //lets process all delayed operations on successful teleport
     pPlayerMover->ProcessDelayedOperations();
-
-    // Si le joueur est stun, il ne pourra pas envoyer sa position -> Fix desynchro ici.
-    if (pPlayerMover->hasUnitState(UNIT_STAT_NO_FREE_MOVE))
-    {
-        pPlayerMover->m_movementInfo.moveFlags &= ~MOVEFLAG_MASK_MOVING_OR_TURN;
-        pPlayerMover->SendHeartBeat(false);
-    }
 }
 
-void WorldSession::HandleMovementOpcodes(WorldPacket & recvData)
+void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
 {
     uint32 const opcode = recvData.GetOpcode();
     DEBUG_LOG("WORLD: Recvd %s (%u, 0x%X) opcode", LookupOpcodeName(opcode), opcode, opcode);
@@ -290,7 +290,7 @@ void WorldSession::HandleMovementOpcodes(WorldPacket & recvData)
     if (pMover->GetObjectGuid() != _clientMoverGuid)
         return;
         
-    Player *pPlayerMover = pMover->ToPlayer();
+    Player* pPlayerMover = pMover->ToPlayer();
 
     // ignore, waiting processing in WorldSession::HandleMoveWorldportAckOpcode and WorldSession::HandleMoveTeleportAck
     if (pPlayerMover && pPlayerMover->IsBeingTeleported())
@@ -392,7 +392,7 @@ CMSG_FORCE_WALK_SPEED_CHANGE_ACK
 CMSG_FORCE_SWIM_BACK_SPEED_CHANGE_ACK
 CMSG_FORCE_TURN_RATE_CHANGE_ACK
 */
-void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPacket &recvData)
+void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPacket& recvData)
 {
     uint32 const opcode = recvData.GetOpcode();
     DEBUG_LOG("WORLD: Recvd %s (%u, 0x%X) opcode", LookupOpcodeName(opcode), opcode, opcode);
@@ -449,17 +449,19 @@ void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPacket &recvData)
     // verify that indeed the client is replying with the changes that were send to him
     if (!pMover->HasPendingMovementChange())
     {
-        sLog.outInfo("WorldSession::HandleForceSpeedChangeAck: Player %s from account id %u sent opcode %u, but no movement change ack was expected from this player",
-            _player->GetName(), _player->GetSession()->GetAccountId(), opcode);
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleForceSpeedChangeAck: Player %s from account id %u sent opcode %u with counter %u, but no movement change ack was expected from this player (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), opcode, movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
     if (!pMover->FindPendingMovementSpeedChange(speedReceived, movementCounter, move_type))
     {
-        sLog.outInfo("WorldSession::HandleForceSpeedChangeAck: Player %s from account id %u sent opcode %u, but received data does not match pending change",
-            _player->GetName(), _player->GetSession()->GetAccountId(), opcode);
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleForceSpeedChangeAck: Player %s from account id %u sent opcode %u with counter %u, but received data does not match pending change (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), opcode, movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
@@ -467,17 +469,17 @@ void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPacket &recvData)
     float newSpeedRate = speedReceived / baseMoveSpeed[move_type];
     pMover->SetSpeedRateReal(move_type, newSpeedRate);
 
-    // Use lambda here to handle movement position checks separately from change ACK.
-    auto HandleMovementPositionChange = [&recvData, &pMover, &movementInfo, &speedReceived, &move_type, &opcode, this]()
+    // Use fake loop here to handle movement position checks separately from change ACK.
+    do
     {
         // Do not accept packets sent before this time.
         if (recvData.GetPacketTime() <= m_moveRejectTime)
-            return;
-
-        Player* pPlayerMover = pMover->ToPlayer();
+            break;
 
         if (!VerifyMovementInfo(movementInfo))
-            return;
+            break;
+
+        Player* pPlayerMover = pMover->ToPlayer();
 
         if (pPlayerMover)
         {
@@ -485,7 +487,7 @@ void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPacket &recvData)
                 !_player->GetCheatData()->HandleSpeedChangeAck(pPlayerMover, movementInfo, speedReceived, move_type, opcode))
             {
                 m_moveRejectTime = WorldTimer::getMSTime();
-                return;
+                break;
             }
         }
         
@@ -503,9 +505,8 @@ void WorldSession::HandleForceSpeedChangeAckOpcodes(WorldPacket &recvData)
             pMover->m_movementInfo.moveFlags = movementInfo.moveFlags;
             pMover->m_movementInfo.CorrectData(pMover);
         }
-    };
+    } while (false);
 
-    HandleMovementPositionChange();
     MovementPacketSender::SendSpeedChangeToObservers(pMover, move_type, speedReceived);
 }
 
@@ -532,7 +533,7 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPacket& recvData)
     movementInfo.UpdateTime(recvData.GetPacketTime());
     uint32 applyInt;
     recvData >> applyInt;
-    bool applyReceived = applyInt == 0u ? false : true;
+    bool applyReceived = applyInt != 0u;
     /*----------------*/
 
     // make sure this client is allowed to control the unit which guid is provided
@@ -547,9 +548,10 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPacket& recvData)
     // verify that indeed the client is replying with the changes that were send to him
     if (!pMover->HasPendingMovementChange())
     {
-        sLog.outInfo("WorldSession::HandleMovementFlagChangeToggleAck: Player %s from account id %u sent opcode %u, but no movement change ack was expected from this player",
-            _player->GetName(), _player->GetSession()->GetAccountId(), opcode);
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleMovementFlagChangeToggleAck: Player %s from account id %u sent opcode %u with counter %u, but no movement change ack was expected from this player (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), opcode, movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
@@ -568,23 +570,24 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPacket& recvData)
 
     if (!pMover->FindPendingMovementFlagChange(movementCounter, applyReceived, changeTypeReceived))
     {
-        sLog.outInfo("WorldSession::HandleMovementFlagChangeToggleAck: Player %s from account id %u sent opcode %u, but received data does not match pending change",
-            _player->GetName(), _player->GetSession()->GetAccountId(), opcode);
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleMovementFlagChangeToggleAck: Player %s from account id %u sent opcode %u with counter %u, but received data does not match pending change (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), opcode, movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
-    // Use lambda here to handle movement position checks separately from change ACK.
-    auto HandleMovementPositionChange = [&recvData, &pMover, &movementInfo, &opcode, this]()
+    // Use fake loop here to handle movement position checks separately from change ACK.
+    do
     {
         // Do not accept packets sent before this time.
         if (recvData.GetPacketTime() <= m_moveRejectTime)
-            return;
-
-        Player* pPlayerMover = pMover->ToPlayer();
+            break;
 
         if (!VerifyMovementInfo(movementInfo))
-            return;
+            break;
+
+        Player* pPlayerMover = pMover->ToPlayer();
 
         if (pPlayerMover)
         {
@@ -592,7 +595,7 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPacket& recvData)
                 !_player->GetCheatData()->HandlePositionTests(pPlayerMover, movementInfo, opcode))
             {
                 m_moveRejectTime = WorldTimer::getMSTime();
-                return;
+                break;
             }
         }
 
@@ -610,9 +613,7 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPacket& recvData)
             pMover->m_movementInfo.moveFlags = movementInfo.moveFlags;
             pMover->m_movementInfo.CorrectData(pMover);
         }
-    };
-    
-    HandleMovementPositionChange();
+    } while (false);
 
     switch (changeTypeReceived)
     {
@@ -624,7 +625,7 @@ void WorldSession::HandleMovementFlagChangeToggleAck(WorldPacket& recvData)
             return;
     }
 
-    if(mFlag != MOVEFLAG_NONE)
+    if (mFlag != MOVEFLAG_NONE)
         MovementPacketSender::SendMovementFlagChangeToObservers(pMover, mFlag, applyReceived);
 }
 
@@ -662,9 +663,10 @@ void WorldSession::HandleMoveRootAck(WorldPacket& recvData)
     // verify that indeed the client is replying with the changes that were send to him
     if (!pMover->HasPendingMovementChange())
     {
-        sLog.outInfo("WorldSession::HandleMoveRootAck: Player %s from account id %u sent opcode %u, but no movement change ack was expected from this player",
-            _player->GetName(), _player->GetSession()->GetAccountId(), opcode);
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleMoveRootAck: Player %s from account id %u sent opcode %u with counter %u, but no movement change ack was expected from this player (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), opcode, movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
@@ -672,21 +674,22 @@ void WorldSession::HandleMoveRootAck(WorldPacket& recvData)
 
     if (!pMover->FindPendingMovementRootChange(movementCounter, applyReceived))
     {
-        sLog.outInfo("WorldSession::HandleMoveRootAck: Player %s from account id %u sent opcode %u, but received data does not match pending change",
-            _player->GetName(), _player->GetSession()->GetAccountId(), opcode);
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleMoveRootAck: Player %s from account id %u sent opcode %u with counter %u, but received data does not match pending change (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), opcode, movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
-    // Use lambda here to handle movement position checks separately from change ACK.
-    auto HandleMovementPositionChange = [&recvData, &pMover, &movementInfo, &opcode, this]()
+    // Use fake loop here to handle movement position checks separately from change ACK.
+    do
     {
         // Do not accept packets sent before this time.
         if (recvData.GetPacketTime() <= m_moveRejectTime)
-            return;
+            break;
 
         if (!VerifyMovementInfo(movementInfo))
-            return;
+            break;
 
         Player* pPlayerMover = pMover->ToPlayer();
 
@@ -696,7 +699,7 @@ void WorldSession::HandleMoveRootAck(WorldPacket& recvData)
                 !_player->GetCheatData()->HandlePositionTests(pPlayerMover, movementInfo, opcode))
             {
                 m_moveRejectTime = WorldTimer::getMSTime();
-                return;
+                break;
             }
         }
 
@@ -714,14 +717,13 @@ void WorldSession::HandleMoveRootAck(WorldPacket& recvData)
             pMover->m_movementInfo.moveFlags = movementInfo.moveFlags;
             pMover->m_movementInfo.CorrectData(pMover);
         }
-    };
-    
-    HandleMovementPositionChange();
+    } while (false);
+
     pMover->SetRootedReal(applyReceived);
     MovementPacketSender::SendMovementFlagChangeToObservers(pMover, MOVEFLAG_ROOT, applyReceived);
 }
 
-void WorldSession::HandleMoveKnockBackAck(WorldPacket & recvData)
+void WorldSession::HandleMoveKnockBackAck(WorldPacket& recvData)
 {
     DEBUG_LOG("WORLD: Recvd CMSG_MOVE_KNOCK_BACK_ACK");
 
@@ -751,17 +753,19 @@ void WorldSession::HandleMoveKnockBackAck(WorldPacket & recvData)
     // verify that indeed the client is replying with the changes that were send to him
     if (!pMover->HasPendingMovementChange())
     {
-        sLog.outInfo("WorldSession::HandleMoveKnockBackAck: Player %s from account id %u sent opcode %u, but no movement change ack was expected from this player",
-            _player->GetName(), _player->GetSession()->GetAccountId(), recvData.GetOpcode());
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleMoveKnockBackAck: Player %s from account id %u sent opcode %u with counter %u, but no movement change ack was expected from this player (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), recvData.GetOpcode(), movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
     if (!pMover->FindPendingMovementKnockbackChange(movementInfo, movementCounter))
     {
-        sLog.outInfo("WorldSession::HandleMoveKnockBackAck: Player %s from account id %u sent opcode %u, but received data does not match pending change",
-            _player->GetName(), _player->GetSession()->GetAccountId(), recvData.GetOpcode());
-        _player->GetCheatData()->OnWrongAckData();
+        sLog.outInfo("WorldSession::HandleMoveKnockBackAck: Player %s from account id %u sent opcode %u with counter %u, but received data does not match pending change (current counter is %u)",
+            _player->GetName(), _player->GetSession()->GetAccountId(), recvData.GetOpcode(), movementCounter, pMover->GetMovementCounter());
+        if (movementCounter == 0 || movementCounter > pMover->GetMovementCounter())
+            _player->GetCheatData()->OnWrongAckData();
         return;
     }
 
@@ -800,7 +804,7 @@ void WorldSession::HandleMoveSplineDoneOpcode(WorldPacket& recvData)
     HandleMovementOpcodes(recvData);
 }
 
-void WorldSession::HandleSetActiveMoverOpcode(WorldPacket &recvData)
+void WorldSession::HandleSetActiveMoverOpcode(WorldPacket& recvData)
 {
     DEBUG_LOG("WORLD: Recvd CMSG_SET_ACTIVE_MOVER");
 
@@ -837,7 +841,7 @@ void WorldSession::HandleSetActiveMoverOpcode(WorldPacket &recvData)
     {
         if (Pet* pet = _player->GetPet())
         {
-            pet->clearUnitState(UNIT_STAT_POSSESSED);
+            pet->ClearUnitState(UNIT_STAT_POSSESSED);
             pet->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_POSSESSED);
             // out of range pet dismissed
             if (!pet->IsWithinDistInMap(_player, pet->GetMap()->GetGridActivationDistance()))
@@ -848,7 +852,7 @@ void WorldSession::HandleSetActiveMoverOpcode(WorldPacket &recvData)
     _clientMoverGuid = guid;
 }
 
-void WorldSession::HandleMoveNotActiveMoverOpcode(WorldPacket &recvData)
+void WorldSession::HandleMoveNotActiveMoverOpcode(WorldPacket& recvData)
 {
     DEBUG_LOG("WORLD: Recvd CMSG_MOVE_NOT_ACTIVE_MOVER");
     recvData.hexlike();
@@ -901,7 +905,7 @@ void WorldSession::HandleMountSpecialAnimOpcode(WorldPacket& /*recvdata*/)
 
 void WorldSession::HandleSummonResponseOpcode(WorldPacket& recvData)
 {
-    if (!_player->isAlive() || _player->isInCombat())
+    if (!_player->IsAlive() || _player->IsInCombat())
         return;
 
     ObjectGuid summonerGuid;
@@ -910,7 +914,7 @@ void WorldSession::HandleSummonResponseOpcode(WorldPacket& recvData)
     _player->SummonIfPossible(true);
 }
 
-void WorldSession::HandleMoveTimeSkippedOpcode(WorldPacket & recvData)
+void WorldSession::HandleMoveTimeSkippedOpcode(WorldPacket& recvData)
 {
     DEBUG_LOG("WORLD: Time Lag/Synchronization Resent/Update");
 
@@ -1022,7 +1026,7 @@ void WorldSession::HandleMoverRelocation(Unit* pMover, MovementInfo& movementInf
                 pPlayerMover->GetTransport()->CalculatePassengerPosition(movementInfo.pos.x, movementInfo.pos.y, movementInfo.pos.z, &movementInfo.pos.o);
                 if (loadPetOnTransport)
                 {
-                    loadPetOnTransport->NearTeleportTo(movementInfo.pos.x, movementInfo.pos.y, movementInfo.pos.z, movementInfo.pos.o);
+                    loadPetOnTransport->NearTeleportTo(movementInfo.pos);
                     pPlayerMover->GetTransport()->AddPassenger(loadPetOnTransport);
                 }
             }
@@ -1037,9 +1041,16 @@ void WorldSession::HandleMoverRelocation(Unit* pMover, MovementInfo& movementInf
                 if (pet->GetTransport())
                 {
                     pet->GetTransport()->RemovePassenger(pet);
-                    pet->NearTeleportTo(movementInfo.pos.x, movementInfo.pos.y, movementInfo.pos.z, movementInfo.pos.o);
+                    pet->NearTeleportTo(movementInfo.pos);
                 }
             }
+        }
+
+        if (movementInfo.HasMovementFlag(MOVEFLAG_MASK_MOVING))
+        {
+            if (ObjectGuid const& lootGuid = pPlayerMover->GetLootGuid())
+                if (!lootGuid.IsItem())
+                    pPlayerMover->GetSession()->DoLootRelease(lootGuid);
         }
 
         if (movementInfo.HasMovementFlag(MOVEFLAG_SWIMMING) != pPlayerMover->IsInWater())
@@ -1050,10 +1061,6 @@ void WorldSession::HandleMoverRelocation(Unit* pMover, MovementInfo& movementInf
 
         pPlayerMover->SetPosition(movementInfo.GetPos()->x, movementInfo.GetPos()->y, movementInfo.GetPos()->z, movementInfo.GetPos()->o);
         pPlayerMover->m_movementInfo = movementInfo;
-
-        // super smart decision; rework required
-        if (ObjectGuid lootGuid = pPlayerMover->GetLootGuid() && !lootGuid.IsItem())
-            pPlayerMover->SendLootRelease(lootGuid);
 
         // Nostalrius - antiundermap1
         if (movementInfo.HasMovementFlag(MOVEFLAG_FALLINGFAR))
@@ -1071,14 +1078,14 @@ void WorldSession::HandleMoverRelocation(Unit* pMover, MovementInfo& movementInf
                     sLog.outInfo("[UNDERMAP] %s [GUID %u]. MapId:%u %f %f %f", pPlayerMover->GetName(), pPlayerMover->GetGUIDLow(), pPlayerMover->GetMapId(), pPlayerMover->GetPositionX(), pPlayerMover->GetPositionY(), pPlayerMover->GetPositionZ());
         }
         else if (pPlayerMover->CanFreeMove())
-            pPlayerMover->SaveNoUndermapPosition(movementInfo.GetPos()->x, movementInfo.GetPos()->y, movementInfo.GetPos()->z + 3.0f);
+            pPlayerMover->SaveNoUndermapPosition(movementInfo.GetPos()->x, movementInfo.GetPos()->y, movementInfo.GetPos()->z + 3.0f, movementInfo.GetPos()->o);
         // Antiundermap2: teleport to graveyard
         if (movementInfo.GetPos()->z < -500.0f)
         {
             // NOTE: this is actually called many times while falling
             // even after the player has been teleported away
             // TODO: discard movement packets after the player is rooted
-            if (pPlayerMover->isAlive())
+            if (pPlayerMover->IsAlive())
             {
                 if (pPlayerMover->InBattleGround())
                     pPlayerMover->EnvironmentalDamage(DAMAGE_FALL_TO_VOID, pPlayerMover->GetHealth());
@@ -1086,7 +1093,7 @@ void WorldSession::HandleMoverRelocation(Unit* pMover, MovementInfo& movementInf
                     pPlayerMover->EnvironmentalDamage(DAMAGE_FALL_TO_VOID, pPlayerMover->GetHealth() / 2);
 
                 // player can be alive if GM and God
-                if (!pPlayerMover->isAlive())
+                if (!pPlayerMover->IsAlive())
                 {
                     // change the death state to CORPSE to prevent the death timer from
                     // starting in the next player update

@@ -17,13 +17,12 @@
 /* ScriptData
 SDName: Orgrimmar
 SD%Complete: 100
-SDComment: Quest support: 2460, 6566
+SDComment: Quest support: 2460
 SDCategory: Orgrimmar
 EndScriptData */
 
 /* ContentData
 npc_shenthul
-npc_thrall_warchief
 EndContentData */
 
 #include "scriptPCH.h"
@@ -50,7 +49,7 @@ struct npc_shenthulAI : public ScriptedAI
     uint32 Reset_Timer;
     uint64 playerGUID;
 
-    void Reset()
+    void Reset() override
     {
         CanTalk = false;
         CanEmote = false;
@@ -59,7 +58,7 @@ struct npc_shenthulAI : public ScriptedAI
         playerGUID = 0;
     }
 
-    void ReceiveEmote(Player* pPlayer, uint32 emote)
+    void ReceiveEmote(Player* pPlayer, uint32 emote) override
     {
         if (emote == TEXTEMOTE_SALUTE && pPlayer->GetQuestStatus(QUEST_SHATTERED_SALUTE) == QUEST_STATUS_INCOMPLETE)
         {
@@ -71,7 +70,7 @@ struct npc_shenthulAI : public ScriptedAI
         }
     }
 
-    void UpdateAI(const uint32 diff)
+    void UpdateAI(uint32 const diff) override
     {
         if (CanEmote)
         {
@@ -98,7 +97,7 @@ struct npc_shenthulAI : public ScriptedAI
             else Salute_Timer -= diff;
         }
 
-        if (!m_creature->SelectHostileTarget() || !m_creature->getVictim())
+        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
         DoMeleeAttackIfReady();
@@ -110,7 +109,7 @@ CreatureAI* GetAI_npc_shenthul(Creature* pCreature)
     return new npc_shenthulAI(pCreature);
 }
 
-bool QuestAccept_npc_shenthul(Player* pPlayer, Creature* pCreature, const Quest* pQuest)
+bool QuestAccept_npc_shenthul(Player* pPlayer, Creature* pCreature, Quest const* pQuest)
 {
     if (pQuest->GetQuestId() == QUEST_SHATTERED_SALUTE)
     {
@@ -120,30 +119,13 @@ bool QuestAccept_npc_shenthul(Player* pPlayer, Creature* pCreature, const Quest*
     return true;
 }
 
-bool GossipHello_npc_eitrigg(Player* pPlayer, Creature* pCreature)
-{
-    if (pCreature->isQuestGiver())
-        pPlayer->PrepareQuestMenu(pCreature->GetGUID());
-
-    if (pPlayer->GetQuestStatus(4941) == QUEST_STATUS_INCOMPLETE)
-        pPlayer->AreaExploredOrEventHappens(4941);
-
-    pPlayer->SEND_GOSSIP_MENU(pPlayer->GetGossipTextId(pCreature), pCreature->GetGUID());
-    return true;
-}
-
 void AddSC_orgrimmar()
 {
-    Script *newscript;
+    Script* newscript;
 
     newscript = new Script;
     newscript->Name = "npc_shenthul";
     newscript->GetAI = &GetAI_npc_shenthul;
     newscript->pQuestAcceptNPC =  &QuestAccept_npc_shenthul;
-    newscript->RegisterSelf();
-
-    newscript = new Script;
-    newscript->Name = "npc_eitrigg";
-    newscript->pGossipHello =  &GossipHello_npc_eitrigg;
     newscript->RegisterSelf();
 }

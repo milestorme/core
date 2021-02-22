@@ -23,7 +23,8 @@ enum
 
     INSTANCE_DIRE_MAUL_MAX_ENCOUNTER = 12,
 
-    DATA_TANNIN_LOOTED     = 13,
+    DATA_TANNIN_LOOTED            = 13,
+    DATA_DREADSTEED_RITUAL_PLAYER = 14,
 
     // DM East
     NPC_OLD_IRONBARK       = 11491,
@@ -58,6 +59,7 @@ enum
     GO_CRISTAL_3_EVENT     = 177258,
     GO_CRISTAL_4_EVENT     = 179504,
     GO_CRISTAL_5_EVENT     = 179505,
+    GO_RITUAL_CANDLE_AURA  = 179688, // invis trap - true caster of 23226
 
     // DM North
     NPC_GUARD_MOLDAR       = 14326,
@@ -88,7 +90,7 @@ enum
 struct sGossipMenuItems
 {
     uint16 m_uiMenu;
-    const char* m_chItem;
+    char const* m_chItem;
 };
 
 const sGossipMenuItems sKromcrushGossips[4] =
@@ -111,23 +113,23 @@ class instance_dire_maul : public ScriptedInstance
 {
     public:
         instance_dire_maul(Map* pMap);
-        ~instance_dire_maul() {}
+        ~instance_dire_maul() override {}
 
-        void Initialize();
+        void Initialize() override;
 
-        void OnPlayerEnter(Player* pPlayer);
-        void OnPlayerLeave(Player* pPlayer);
-        void OnObjectCreate(GameObject* pGo);
-        void OnCreatureDeath(Creature* pCreature);
-        void OnCreatureCreate(Creature* pCreature);
+        void OnPlayerEnter(Player* pPlayer) override;
+        void OnPlayerLeave(Player* pPlayer) override;
+        void OnObjectCreate(GameObject* pGo) override;
+        void OnCreatureDeath(Creature* pCreature) override;
+        void OnCreatureCreate(Creature* pCreature) override;
 
-        void SetData(uint32 uiType, uint32 uiData);
-        void SetData64(uint32 uiType, uint64 uiData);
-        uint32 GetData(uint32 uiType);
-        uint64 GetData64(uint32 uiType);
+        void SetData(uint32 uiType, uint32 uiData) override;
+        void SetData64(uint32 uiType, uint64 uiData) override;
+        uint32 GetData(uint32 uiType) override;
+        uint64 GetData64(uint32 uiType) override;
 
-        const char* Save() { return strInstData.c_str(); }
-        void Load(const char* chrIn);
+        char const* Save() override { return strInstData.c_str(); }
+        void Load(char const* chrIn) override;
 
         uint8 GetChoRushEquipment();
         void DoSortCristalsEventMobs();
@@ -148,6 +150,9 @@ class instance_dire_maul : public ScriptedInstance
         uint64 m_uiImmolTharGUID;
         uint64 m_uiTortheldrinGUID;
         uint64 m_auiCristalsGUID[MAX_CRISTALS];
+        uint64 m_uiRitualCandleAuraGUID;
+        uint64 m_uiRitualPlayerGUID;
+
         std::list<uint64> m_alCristalsEventtMobGUIDSorted[MAX_CRISTALS];
         std::list<uint64> m_lCristalsEventtMobGUIDList;
         std::list<uint64> m_lImmolTharGardiensMobGUIDList;
@@ -171,7 +176,6 @@ class instance_dire_maul : public ScriptedInstance
         uint64 m_uiGordokTribute5GUID;
         uint64 m_uiGordokTribute6GUID;
 
-        uint64 m_uiKnotsBallandChainGUID;
         uint64 m_uiBrokenTrapGUID;
         bool m_bIsGordokTributeRespawned;
         bool m_bIsTanninLooted;

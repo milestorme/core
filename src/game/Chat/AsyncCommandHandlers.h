@@ -71,12 +71,12 @@ chain callbacks until we have the right result
 class PInfoHandler
 {
 public:
-    static void HandlePInfoCommand(WorldSession *session, Player *target, ObjectGuid& target_guid, std::string& name);
-    static void HandlePlayerLookupResult(QueryResult *result, PInfoData *data);
+    static void HandlePInfoCommand(WorldSession* session, Player* target, ObjectGuid& target_guid, std::string& name);
+    static void HandlePlayerLookupResult(QueryResult* result, PInfoData *data);
     static void HandleDataAfterPlayerLookup(PInfoData *data);
     static void HandleDelayedMoneyQuery(QueryResult*, SqlQueryHolder *holder, PInfoData *data);
     // Not thread safe. Must be handled in unsafe callback
-    static void HandleAccountInfoResult(QueryResult *result, PInfoData *data);
+    static void HandleAccountInfoResult(QueryResult* result, PInfoData *data);
     static void HandleResponse(WorldSession* session, PInfoData *data);
 };
 
@@ -122,26 +122,27 @@ private:
 };
 
 /* Run the display in an async task inside the main update, safe for session consistency */
-class PlayerAccountSearchDisplayTask : public AsyncTask
+class PlayerAccountSearchDisplayTask
 {
 public:
+
     PlayerAccountSearchDisplayTask(PlayerSearchQueryHolder* queryHolder)
         : holder(queryHolder) {}
 
-    void run() override;
+    void operator()();
 
 private:
     PlayerSearchQueryHolder* holder;
 };
 
 /* Run the display in an async task inside the main update, safe for session consistency */
-class PlayerCharacterLookupDisplayTask : public AsyncTask
+class PlayerCharacterLookupDisplayTask
 {
 public:
-    PlayerCharacterLookupDisplayTask(QueryResult *result, uint32 accountId, uint32 limit)
+    PlayerCharacterLookupDisplayTask(QueryResult* result, uint32 accountId, uint32 limit)
         : query(result), accountId(accountId), limit(limit) {}
 
-    void run() override;
+    void operator ()();
 
 private:
     QueryResult* query;
@@ -149,13 +150,13 @@ private:
     uint32 limit;
 };
 
-class AccountSearchDisplayTask : public AsyncTask
+class AccountSearchDisplayTask
 {
 public:
     AccountSearchDisplayTask(QueryResult* result, uint32 accountId, uint32 limit)
         : query(result), accountId(accountId), limit(limit) {}
 
-    void run() override;
+    void operator ()();
 
 private:
     QueryResult* query;

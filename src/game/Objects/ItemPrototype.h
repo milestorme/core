@@ -69,19 +69,19 @@ enum ItemBondingType
 // Mask for ItemPrototype.Flags field
 enum ItemPrototypeFlags
 {
-    ITEM_FLAG_UNK0                            = 0x00000001, // not used
+    ITEM_FLAG_NO_PICKUP                       = 0x00000001, // not used
     ITEM_FLAG_CONJURED                        = 0x00000002,
     ITEM_FLAG_LOOTABLE                        = 0x00000004, // affect only non container items that can be "open" for loot. It or lockid set enable for client show "Right click to open". See also ITEM_DYNFLAG_UNLOCKED
-    ITEM_FLAG_UNK3                            = 0x00000008, // not used in pre-3.x
+    ITEM_FLAG_EXOTIC                          = 0x00000008, // not used in pre-3.x
     ITEM_FLAG_DEPRECATED                      = 0x00000010, // can't repeat old note: appears red icon (like when item durability==0)
     ITEM_FLAG_INDESTRUCTIBLE                  = 0x00000020, // used for totem. Item can not be destroyed, except by using spell (item can be reagent for spell and then allowed)
-    ITEM_FLAG_UNK6                            = 0x00000040, // ? old note: usable
+    ITEM_FLAG_PLAYERCAST                      = 0x00000040, // ? old note: usable
     ITEM_FLAG_NO_EQUIP_COOLDOWN               = 0x00000080,
-    ITEM_FLAG_UNK8                            = 0x00000100,
+    ITEM_FLAG_INTBONUSINSTEAD                 = 0x00000100,
     ITEM_FLAG_WRAPPER                         = 0x00000200, // used or not used wrapper
     ITEM_FLAG_IGNORE_BAG_SPACE                = 0x00000400, // ignore bag space at new item creation?
     ITEM_FLAG_PARTY_LOOT                      = 0x00000800, // determines if item is party loot or not
-    ITEM_FLAG_UNK12                           = 0x00001000, // not used in pre-3.x
+    ITEM_FLAG_BRIEFSPELLEFFECTS               = 0x00001000, // not used in pre-3.x
     ITEM_FLAG_CHARTER                         = 0x00002000, // guild charter
     ITEM_FLAG_HAS_TEXT                        = 0x00004000, // Only readable items have this (but not all)
     ITEM_FLAG_NO_DISENCHANT                   = 0x00008000,
@@ -369,7 +369,7 @@ enum ItemSubclassJunk
 
 #define MAX_ITEM_SUBCLASS_JUNK                    1
 
-const uint32 MaxItemSubclassValues[MAX_ITEM_CLASS] =
+uint32 const MaxItemSubclassValues[MAX_ITEM_CLASS] =
 {
     MAX_ITEM_SUBCLASS_CONSUMABLE,
     MAX_ITEM_SUBCLASS_CONTAINER,
@@ -408,7 +408,7 @@ enum ItemExtraFlags
 };
 
 // GCC have alternative #pragma pack(N) syntax and old gcc version not support pack(push,N), also any gcc version not support it at some platform
-#if defined( __GNUC__ )
+#if defined(__GNUC__)
 #pragma pack(1)
 #else
 #pragma pack(push,1)
@@ -534,10 +534,13 @@ struct ItemPrototype
     bool IsWeapon() const { return Class == ITEM_CLASS_WEAPON; }
     bool IsRangedWeapon() const { return IsWeapon() && (InventoryType == INVTYPE_RANGED || InventoryType == INVTYPE_THROWN || InventoryType == INVTYPE_RANGEDRIGHT); }
     bool HasSignature() const { return GetMaxStackSize() == 1 && Class != ITEM_CLASS_CONSUMABLE && Class != ITEM_CLASS_QUEST && (Flags & ITEM_FLAG_NO_CREATOR) == 0 && ItemId != 6948; /*Hearthstone*/ }
+
+    uint32 GetProficiencySkill() const;
+    uint32 GetProficiencySpell() const;
 };
 
 // GCC have alternative #pragma pack() syntax and old gcc version not support pack(pop), also any gcc version not support it at some platform
-#if defined( __GNUC__ )
+#if defined(__GNUC__)
 #pragma pack()
 #else
 #pragma pack(pop)
